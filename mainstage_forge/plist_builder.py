@@ -3,8 +3,8 @@
 from __future__ import annotations
 from typing import Any
 
-# instID values for software instrument slots 1-N
-_INST_IDS = [104, 108, 112, 116, 224, 228, 232, 236]
+# instID values for software instrument slots 1-N (multiples of 4 starting at 104)
+_INST_IDS = [104, 108, 112, 116, 120, 124, 128, 132]
 
 
 VERSION_PATCHES = 40014
@@ -190,8 +190,6 @@ def instrument_channel_entry(
     return {
         "Channel_chaStrCategory": "",
         "Channel_chaStrName": "",
-        "Channel_controllerTransformIn": 11,
-        "Channel_controllerTransformOut": 11,
         "Channel_expressionValue": 127,
         "Channel_filterAftertouch": False,
         "Channel_filterExpression": False,
@@ -209,7 +207,7 @@ def instrument_channel_entry(
         "Channel_outputIsBus": False,
         "Channel_outputIsStereo": True,
         "Channel_pan": float(pan),
-        "Channel_sends": [],
+        "Channel_sends": [{}, {}],
         "Channel_seqColorIndex": color_index,
         "Channel_userDidModifySmartControls": False,
         "Custom_icon": 4098,
@@ -217,7 +215,7 @@ def instrument_channel_entry(
         "Filename": filename,
         "MIDITransform": {"hermode": False, "transforms": [{"filter": True, "in": -7}]},
         "Root": False,
-        "Track_icon": 4098,
+        "Track_icon": 4505,
         "UUID": uuid,
         "volume": _volume_to_raw(volume),
     }
