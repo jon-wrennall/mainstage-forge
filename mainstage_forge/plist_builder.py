@@ -3,6 +3,9 @@
 from __future__ import annotations
 from typing import Any
 
+# instID values for software instrument slots 1-N
+_INST_IDS = [104, 108, 112, 116, 224, 228, 232, 236]
+
 
 VERSION_PATCHES = 40014
 
@@ -160,6 +163,66 @@ _REQUIRED_CHANNELS = [
 ]
 
 
+def _volume_to_raw(v: float) -> int:
+    """Convert 0.0–1.0 linear volume to MainStage's packed-float int (1.0 = 1509949440)."""
+    import struct
+    clamped = max(0.0, min(1.0, v))
+    return struct.unpack(">I", struct.pack(">f", clamped))[0]
+
+
+def instrument_channel_entry(
+    name: str,
+    filename: str,
+    slot_index: int,
+    uuid: str,
+    volume: float = 1.0,
+    pan: float = 0.0,
+    muted: bool = False,
+    color_index: int = 33,
+) -> dict:
+    """
+    Build a channel entry dict for a software instrument slot.
+
+    *slot_index* is 0-based (0 → instID 104, 1 → 108, etc.).
+    *filename* is the basename of the .cst file (e.g. "Grand Piano.cst").
+    """
+    inst_id = _INST_IDS[slot_index] if slot_index < len(_INST_IDS) else 104 + slot_index * 4
+    return {
+        "Channel_chaStrCategory": "",
+        "Channel_chaStrName": "",
+        "Channel_controllerTransformIn": 11,
+        "Channel_controllerTransformOut": 11,
+        "Channel_expressionValue": 127,
+        "Channel_filterAftertouch": False,
+        "Channel_filterExpression": False,
+        "Channel_filterHermodeTuning": False,
+        "Channel_filterModulation": False,
+        "Channel_filterPitchBend": False,
+        "Channel_filterSustainPedal": False,
+        "Channel_inputIndex_1": -1,
+        "Channel_inputIsBus": False,
+        "Channel_instID": inst_id,
+        "Channel_isMuted": muted,
+        "Channel_isSolo": False,
+        "Channel_name": name,
+        "Channel_outputIndex": 0,
+        "Channel_outputIsBus": False,
+        "Channel_outputIsStereo": True,
+        "Channel_pan": float(pan),
+        "Channel_sends": [],
+        "Channel_seqColorIndex": color_index,
+        "Channel_userDidModifySmartControls": False,
+        "Custom_icon": 4098,
+        "Custom_name": True,
+        "Filename": filename,
+        "MIDITransform": {"hermode": False, "transforms": [{"filter": True, "in": -7}]},
+        "Root": False,
+        "Track_icon": 4098,
+        "UUID": uuid,
+        "volume": _volume_to_raw(volume),
+    }
+
+
 def concert_root_plist(name: str, tempo: float = 120.0, child_names: list[str] | None = None) -> dict:
     """data.plist for Concert.patch/ (concert level)."""
     return {
@@ -191,6 +254,7 @@ def patch_plist(
     program_change_num: int = 0,
     global_transpose: int = 0,
     icon_id: int | None = None,
+    channel_entries: list[dict] | None = None,
 ) -> dict:
     """data.plist for a leaf {Patch}.patch/ directory."""
     overrides: dict[str, Any] = {
@@ -210,7 +274,7 @@ def patch_plist(
 
     return {
         "VersionPatches": VERSION_PATCHES,
-        "channels": [],
+        "channels": list(channel_entries or []),
         "patch": wrapper,
     }
 

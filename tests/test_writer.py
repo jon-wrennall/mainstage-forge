@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import tempfile
 
-from mainstage_forge.models import Concert, Set, Patch
+from mainstage_forge.models import Concert, Set, Patch, ChannelStrip, TEMPLATES
 from mainstage_forge.writer import write_concert
 
 
@@ -113,3 +113,73 @@ def test_concert_patch_has_required_channels(tmp):
     assert "Master" in names
     assert "Metronome" in names
     assert "Output 1-2" in names
+
+
+def test_templates_available():
+    assert "Grand Piano" in TEMPLATES
+    assert "Classic Electric Piano" in TEMPLATES
+    assert "Bass" in TEMPLATES
+    for name, path in TEMPLATES.items():
+        assert path.exists(), f"Template file missing: {path}"
+
+
+def test_channel_strip_resolves_template():
+    ch = ChannelStrip(name="Piano", cst_source="Grand Piano")
+    resolved = ch.resolve_cst()
+    assert resolved.exists()
+    assert resolved.stem == "Grand Piano"
+
+
+def test_channel_strip_resolves_absolute_path(tmp_path):
+    # Copy a real .cst to tmp to simulate an absolute path
+    src = TEMPLATES["Grand Piano"]
+    dst = tmp_path / "MyPiano.cst"
+    import shutil
+    shutil.copy2(src, dst)
+    ch = ChannelStrip(name="Piano", cst_source=str(dst))
+    assert ch.resolve_cst() == dst
+
+
+def test_channel_strip_unknown_raises():
+    ch = ChannelStrip(name="Piano", cst_source="NonExistentInstrument")
+    with pytest.raises(FileNotFoundError):
+        ch.resolve_cst()
+
+
+def test_patch_with_channels_writes_cst(tmp):
+    concert = Concert(name="Test Gig")
+    s = concert.add_set("Song A")
+    p = s.add_patch("Keys")
+    p.add_channel("Piano", "Grand Piano")
+    p.add_channel("Bass", "Bass")
+
+    path = write_concert(concert, tmp)
+    patch_dir = path / "Concert.patch" / "Song A.patch" / "Keys.patch"
+    assert (patch_dir / "Piano.cst").exists()
+    assert (patch_dir / "Bass.cst").exists()
+
+
+def test_patch_channels_in_plist(tmp):
+    concert = Concert(name="Test Gig")
+    s = concert.add_set("Song A")
+    p = s.add_patch("Keys")
+    p.add_channel("Piano", "Grand Piano", volume=0.8, pan=-0.5)
+    p.add_channel("Bass", "Bass")
+
+    path = write_concert(concert, tmp)
+    data = plistlib.load(open(path / "Concert.patch" / "Song A.patch" / "Keys.patch" / "data.plist", "rb"))
+    ch_names = [c["Channel_name"] for c in data["channels"]]
+    assert ch_names == ["Piano", "Bass"]
+    piano = data["channels"][0]
+    assert piano["Filename"] == "Piano.cst"
+    assert piano["Channel_instID"] == 104
+    assert piano["Channel_pan"] == pytest.approx(-0.5)
+    bass = data["channels"][1]
+    assert bass["Channel_instID"] == 108
+
+
+def test_empty_patch_has_no_channels(tmp):
+    concert = Concert.from_setlist("Test Gig", ["Song A"])
+    path = write_concert(concert, tmp)
+    data = plistlib.load(open(path / "Concert.patch" / "Song A.patch" / "Main.patch" / "data.plist", "rb"))
+    assert data["channels"] == []

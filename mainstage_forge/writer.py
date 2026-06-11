@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 from .models import Concert, Set, Patch
-from .plist_builder import concert_data_plist, concert_root_plist, set_plist, patch_plist
+from .plist_builder import concert_data_plist, concert_root_plist, set_plist, patch_plist, instrument_channel_entry
 
 _BASE_PLISTZ = Path(__file__).parent / "base.plistZ"
 _WORKSPACE_LAYOUT = Path(__file__).parent / "workspace.layout"
@@ -75,6 +75,25 @@ def write_concert(concert: Concert, output_dir: str | Path, overwrite: bool = Fa
         # One sub-directory per patch within the set
         for p in s.patches:
             patch_dir = set_dir / f"{_safe_name(p.name)}.patch"
+            patch_dir.mkdir(parents=True, exist_ok=True)
+
+            # Copy .cst files and build channel entries
+            channel_entries = []
+            for idx, ch in enumerate(p.channels):
+                cst_src = ch.resolve_cst()
+                cst_filename = ch.name + ".cst"
+                shutil.copy2(cst_src, patch_dir / cst_filename)
+                channel_entries.append(instrument_channel_entry(
+                    name=ch.name,
+                    filename=cst_filename,
+                    slot_index=idx,
+                    uuid=ch.uuid,
+                    volume=ch.volume,
+                    pan=ch.pan,
+                    muted=ch.muted,
+                    color_index=ch.color_index,
+                ))
+
             _write_plist(
                 patch_dir / "data.plist",
                 patch_plist(
@@ -85,6 +104,7 @@ def write_concert(concert: Concert, output_dir: str | Path, overwrite: bool = Fa
                     program_change_num=p.program_change_num,
                     global_transpose=p.global_transpose,
                     icon_id=p.icon_id,
+                    channel_entries=channel_entries,
                 ),
             )
 
