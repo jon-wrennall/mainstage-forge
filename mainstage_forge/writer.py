@@ -1,0 +1,93 @@
+"""Write a Concert model to a .concert package on disk."""
+
+from __future__ import annotations
+import plistlib
+import shutil
+from pathlib import Path
+
+from .models import Concert, Set, Patch
+from .plist_builder import concert_data_plist, concert_root_plist, set_plist, patch_plist
+
+
+def _write_plist(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "wb") as f:
+        plistlib.dump(data, f, fmt=plistlib.FMT_XML)
+
+
+def _safe_name(name: str) -> str:
+    """Sanitise a name for use as a directory/file component."""
+    return name.replace("/", "-").replace(":", "-").replace("\x00", "")
+
+
+def write_concert(concert: Concert, output_dir: str | Path, overwrite: bool = False) -> Path:
+    """
+    Write *concert* to *output_dir* as a proper MainStage .concert package.
+
+    Returns the path to the created .concert package.
+    """
+    out = Path(output_dir)
+    concert_path = out / f"{_safe_name(concert.name)}.concert"
+
+    if concert_path.exists():
+        if overwrite:
+            shutil.rmtree(concert_path)
+        else:
+            raise FileExistsError(
+                f"{concert_path} already exists. Pass overwrite=True to replace it."
+            )
+
+    # Root data.plist (UI/window state)
+    _write_plist(concert_path / "data.plist", concert_data_plist())
+
+    # Concert.patch/data.plist (concert-level channels)
+    concert_patch = concert_path / "Concert.patch"
+    _write_plist(concert_patch / "data.plist", concert_root_plist(concert.name, concert.tempo))
+
+    # One sub-directory per set
+    for s in concert.sets:
+        set_dir = concert_patch / f"{_safe_name(s.name)}.patch"
+        _write_plist(set_dir / "data.plist", set_plist(s.name, s.tempo))
+
+        # One sub-directory per patch within the set
+        for p in s.patches:
+            patch_dir = set_dir / f"{_safe_name(p.name)}.patch"
+            _write_plist(
+                patch_dir / "data.plist",
+                patch_plist(
+                    name=p.name,
+                    tempo=p.tempo,
+                    has_tempo=p.has_tempo,
+                    has_program_change=p.has_program_change,
+                    program_change_num=p.program_change_num,
+                    global_transpose=p.global_transpose,
+                    icon_id=p.icon_id,
+                ),
+            )
+
+    return concert_path
+
+
+def clone_channel_strips(
+    source_concert: str | Path,
+    target_patch_dir: str | Path,
+    strip_names: list[str] | None = None,
+) -> list[Path]:
+    """
+    Copy .cst channel-strip files from an existing concert into a patch directory.
+
+    MainStage .cst files are proprietary binary — this copies them verbatim.
+    *strip_names* filters which strips to copy; None copies all.
+    Returns list of copied paths.
+    """
+    src = Path(source_concert)
+    dst = Path(target_patch_dir)
+    dst.mkdir(parents=True, exist_ok=True)
+
+    copied = []
+    for cst in src.rglob("*.cst"):
+        if strip_names is None or cst.stem in strip_names:
+            dest = dst / cst.name
+            shutil.copy2(cst, dest)
+            copied.append(dest)
+    return copied
