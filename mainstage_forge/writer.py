@@ -3,12 +3,19 @@
 from __future__ import annotations
 import plistlib
 import shutil
+import subprocess
 from pathlib import Path
 
 from .models import Concert, Set, Patch
 from .plist_builder import concert_data_plist, concert_root_plist, set_plist, patch_plist
 
 _BASE_PLISTZ = Path(__file__).parent / "base.plistZ"
+_WORKSPACE_LAYOUT = Path(__file__).parent / "workspace.layout"
+_REQUIRED_CST = [
+    Path(__file__).parent / "Master.cst",
+    Path(__file__).parent / "Metronome.cst",
+    Path(__file__).parent / "Output 1-2.cst",
+]
 
 
 def _write_plist(path: Path, data: dict) -> None:
@@ -39,12 +46,23 @@ def write_concert(concert: Concert, output_dir: str | Path, overwrite: bool = Fa
                 f"{concert_path} already exists. Pass overwrite=True to replace it."
             )
 
-    # Root data.plist (UI/window state) + base.plistZ (required selection state)
+    # Root data.plist (UI/window state) + required seed files
     _write_plist(concert_path / "data.plist", concert_data_plist())
     shutil.copy2(_BASE_PLISTZ, concert_path / "base.plistZ")
+    shutil.copytree(_WORKSPACE_LAYOUT, concert_path / "workspace.layout")
 
-    # Concert.patch/data.plist (concert-level channels)
+    # Set FinderInfo xattr — required for MainStage to recognise the package
+    _FINDER_INFO = bytes.fromhex("00000000000000000010000000000000" + "00000000000000000000000000000000")
+    subprocess.run(
+        ["xattr", "-wx", "com.apple.FinderInfo", _FINDER_INFO.hex(), str(concert_path)],
+        check=True,
+    )
+
+    # Concert.patch/ — required channel strips
     concert_patch = concert_path / "Concert.patch"
+    concert_patch.mkdir(parents=True, exist_ok=True)
+    for cst in _REQUIRED_CST:
+        shutil.copy2(cst, concert_patch / cst.name)
     set_names = [_safe_name(s.name) for s in concert.sets]
     _write_plist(concert_patch / "data.plist", concert_root_plist(concert.name, concert.tempo, child_names=set_names))
 

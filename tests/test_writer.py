@@ -105,8 +105,11 @@ def test_base_plistz_present(tmp):
     assert (path / "base.plistZ").exists()
 
 
-def test_channels_array_is_empty(tmp):
+def test_concert_patch_has_required_channels(tmp):
     concert = Concert.from_setlist("Test Gig", ["Song A"])
     path = write_concert(concert, tmp)
     data = plistlib.load(open(path / "Concert.patch" / "data.plist", "rb"))
-    assert data["channels"] == []
+    names = [c["Channel_name"] for c in data["channels"]]
+    assert "Master" in names
+    assert "Metronome" in names
+    assert "Output 1-2" in names
