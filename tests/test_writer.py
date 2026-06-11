@@ -99,6 +99,12 @@ def test_unsafe_name_sanitised(tmp):
     assert (path / "Concert.patch" / "Song- A.patch").is_dir()
 
 
+def test_base_plistz_present(tmp):
+    concert = Concert.from_setlist("Test Gig", ["Song A"])
+    path = write_concert(concert, tmp)
+    assert (path / "base.plistZ").exists()
+
+
 def test_channels_array_is_empty(tmp):
     concert = Concert.from_setlist("Test Gig", ["Song A"])
     path = write_concert(concert, tmp)

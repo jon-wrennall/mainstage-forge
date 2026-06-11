@@ -8,11 +8,13 @@ from pathlib import Path
 from .models import Concert, Set, Patch
 from .plist_builder import concert_data_plist, concert_root_plist, set_plist, patch_plist
 
+_BASE_PLISTZ = Path(__file__).parent / "base.plistZ"
+
 
 def _write_plist(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "wb") as f:
-        plistlib.dump(data, f, fmt=plistlib.FMT_XML)
+        plistlib.dump(data, f, fmt=plistlib.FMT_BINARY)
 
 
 def _safe_name(name: str) -> str:
@@ -37,17 +39,20 @@ def write_concert(concert: Concert, output_dir: str | Path, overwrite: bool = Fa
                 f"{concert_path} already exists. Pass overwrite=True to replace it."
             )
 
-    # Root data.plist (UI/window state)
+    # Root data.plist (UI/window state) + base.plistZ (required selection state)
     _write_plist(concert_path / "data.plist", concert_data_plist())
+    shutil.copy2(_BASE_PLISTZ, concert_path / "base.plistZ")
 
     # Concert.patch/data.plist (concert-level channels)
     concert_patch = concert_path / "Concert.patch"
-    _write_plist(concert_patch / "data.plist", concert_root_plist(concert.name, concert.tempo))
+    set_names = [_safe_name(s.name) for s in concert.sets]
+    _write_plist(concert_patch / "data.plist", concert_root_plist(concert.name, concert.tempo, child_names=set_names))
 
     # One sub-directory per set
     for s in concert.sets:
         set_dir = concert_patch / f"{_safe_name(s.name)}.patch"
-        _write_plist(set_dir / "data.plist", set_plist(s.name, s.tempo))
+        patch_names = [_safe_name(p.name) for p in s.patches]
+        _write_plist(set_dir / "data.plist", set_plist(s.name, s.tempo, child_names=patch_names))
 
         # One sub-directory per patch within the set
         for p in s.patches:

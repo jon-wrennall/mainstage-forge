@@ -74,23 +74,23 @@ def _patch_wrapper(engine_node: dict) -> dict:
     }
 
 
-def concert_root_plist(name: str, tempo: float = 120.0) -> dict:
+def concert_root_plist(name: str, tempo: float = 120.0, child_names: list[str] | None = None) -> dict:
     """data.plist for Concert.patch/ (concert level)."""
     return {
         "VersionPatches": VERSION_PATCHES,
         "Patch_isPasteboardType": False,
         "channels": [],
-        "nodes": [],
+        "nodes": [f"{n}.patch" for n in (child_names or [])],
         "patch": _patch_wrapper(_base_engine_node(name, tempo=tempo)),
     }
 
 
-def set_plist(name: str, tempo: float = 120.0) -> dict:
+def set_plist(name: str, tempo: float = 120.0, child_names: list[str] | None = None) -> dict:
     """data.plist for a {Set}.patch/ directory."""
     return {
         "VersionPatches": VERSION_PATCHES,
         "channels": [],
-        "nodes": [],
+        "nodes": [f"{n}.patch" for n in (child_names or [])],
         "patch": _patch_wrapper(
             _base_engine_node(name, tempo=tempo, imageNameForSetFolder="icon_patchlist_set")
         ),
