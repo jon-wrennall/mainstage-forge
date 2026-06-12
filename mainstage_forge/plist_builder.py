@@ -253,8 +253,16 @@ def patch_plist(
     global_transpose: int = 0,
     icon_id: int | None = None,
     channel_entries: list[dict] | None = None,
+    smart_knob_specs: list[tuple] | None = None,
 ) -> dict:
-    """data.plist for a leaf {Patch}.patch/ directory."""
+    """
+    data.plist for a leaf {Patch}.patch/ directory.
+
+    Args:
+        smart_knob_specs: list of (knob_number, inst_id, param_index,
+                          range_low, range_high, label) tuples — one per Smart Knob.
+                          Populated by the writer from Patch.smart_knobs.
+    """
     overrides: dict[str, Any] = {
         "globalTranspose": global_transpose,
         "hasProgramChange": has_program_change,
@@ -264,6 +272,21 @@ def patch_plist(
     }
     if icon_id is not None:
         overrides["iconID"] = icon_id
+
+    if smart_knob_specs:
+        from .smart_controls import build_parameter_mapping_map, build_ui_plugin_data_dict
+        knob_tuples = [(n, iid, pi, rl, rh) for n, iid, pi, rl, rh, _ in smart_knob_specs]
+        label_tuples = [(n, lbl) for n, _, _, _, _, lbl in smart_knob_specs]
+        overrides["parameterMappingMap"] = build_parameter_mapping_map(knob_tuples)
+        overrides["uiPluginDataDict"] = build_ui_plugin_data_dict(label_tuples)
+        overrides["smartControlsTabIndex"] = 0
+    else:
+        overrides["parameterMappingMap"] = {
+            "containsDictionary": {},
+            "overrideDict": {},
+            "storeDict": {},
+        }
+        overrides["uiPluginDataDict"] = {}
 
     engine_node = _base_engine_node(name, tempo=tempo, **overrides)
     wrapper = _patch_wrapper(engine_node)

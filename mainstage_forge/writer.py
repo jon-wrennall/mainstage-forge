@@ -7,10 +7,12 @@ import subprocess
 from pathlib import Path
 
 from .models import Concert, Set, Patch
+from .plist_builder import _INST_IDS
 from .plist_builder import concert_data_plist, concert_root_plist, set_plist, patch_plist, instrument_channel_entry
 
 _BASE_PLISTZ = Path(__file__).parent / "base.plistZ"
 _WORKSPACE_LAYOUT = Path(__file__).parent / "workspace.layout"
+_WORKSPACE_LAYOUT_SMART = Path(__file__).parent / "workspace_smart.layout"
 _REQUIRED_CST = [
     Path(__file__).parent / "Master.cst",
     Path(__file__).parent / "Metronome.cst",
@@ -46,10 +48,18 @@ def write_concert(concert: Concert, output_dir: str | Path, overwrite: bool = Fa
                 f"{concert_path} already exists. Pass overwrite=True to replace it."
             )
 
+    # Choose workspace layout: use the smart-controls variant if any patch has smart knobs
+    has_smart_controls = any(
+        p.smart_knobs
+        for s in concert.sets
+        for p in s.patches
+    )
+    workspace_src = _WORKSPACE_LAYOUT_SMART if has_smart_controls else _WORKSPACE_LAYOUT
+
     # Root data.plist (UI/window state) + required seed files
     _write_plist(concert_path / "data.plist", concert_data_plist())
     shutil.copy2(_BASE_PLISTZ, concert_path / "base.plistZ")
-    shutil.copytree(_WORKSPACE_LAYOUT, concert_path / "workspace.layout")
+    shutil.copytree(workspace_src, concert_path / "workspace.layout")
 
     # Set FinderInfo xattr — required for MainStage to recognise the package
     _FINDER_INFO = bytes.fromhex("00000000000000000010000000000000" + "00000000000000000000000000000000")
@@ -79,11 +89,12 @@ def write_concert(concert: Concert, output_dir: str | Path, overwrite: bool = Fa
 
             # Copy .cst files and build channel entries
             channel_entries = []
+            slot_inst_ids: list[int] = []
             for idx, ch in enumerate(p.channels):
                 cst_src = ch.resolve_cst()
                 cst_filename = ch.name + ".cst"
                 shutil.copy2(cst_src, patch_dir / cst_filename)
-                channel_entries.append(instrument_channel_entry(
+                entry = instrument_channel_entry(
                     name=ch.name,
                     filename=cst_filename,
                     slot_index=idx,
@@ -92,7 +103,21 @@ def write_concert(concert: Concert, output_dir: str | Path, overwrite: bool = Fa
                     pan=ch.pan,
                     muted=ch.muted,
                     color_index=ch.color_index,
-                ))
+                )
+                channel_entries.append(entry)
+                slot_inst_ids.append(entry["Channel_instID"])
+
+            # Build smart knob specs: (knob_num, inst_id, param_index, rl, rh, label)
+            smart_knob_specs = None
+            if p.smart_knobs:
+                smart_knob_specs = []
+                for knob_num, knob in enumerate(p.smart_knobs, start=1):
+                    slot = knob.channel_slot_index
+                    inst_id = slot_inst_ids[slot] if slot < len(slot_inst_ids) else _INST_IDS[0]
+                    smart_knob_specs.append((
+                        knob_num, inst_id, knob.param_index,
+                        knob.range_low, knob.range_high, knob.label,
+                    ))
 
             _write_plist(
                 patch_dir / "data.plist",
@@ -105,6 +130,7 @@ def write_concert(concert: Concert, output_dir: str | Path, overwrite: bool = Fa
                     global_transpose=p.global_transpose,
                     icon_id=p.icon_id,
                     channel_entries=channel_entries,
+                    smart_knob_specs=smart_knob_specs,
                 ),
             )
 

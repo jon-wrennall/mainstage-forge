@@ -183,3 +183,66 @@ def test_empty_patch_has_no_channels(tmp):
     path = write_concert(concert, tmp)
     data = plistlib.load(open(path / "Concert.patch" / "Song A.patch" / "Main.patch" / "data.plist", "rb"))
     assert data["channels"] == []
+
+
+# ── Smart Controls ────────────────────────────────────────────────────────────
+
+def test_smart_knob_label_in_plist(tmp):
+    concert = Concert(name="Test Gig")
+    s = concert.add_set("Song A")
+    p = s.add_patch("Keys")
+    p.add_channel("Piano V", "Grand Piano")
+    p.add_smart_knob("Cutoff", channel_slot_index=0, param_index=35)
+    p.add_smart_knob("Resonance", channel_slot_index=0, param_index=36)
+
+    path = write_concert(concert, tmp)
+    data = plistlib.load(open(path / "Concert.patch" / "Song A.patch" / "Keys.patch" / "data.plist", "rb"))
+    uid = data["patch"]["engineNode"]["uiPluginDataDict"]
+    assert "\x01IDENTITY:Smart Knob 1" in uid
+    assert uid["\x01IDENTITY:Smart Knob 1"]["storeDict"]["customLabel"] == "Cutoff"
+    assert uid["\x01IDENTITY:Smart Knob 2"]["storeDict"]["customLabel"] == "Resonance"
+
+
+def test_smart_knob_mapping_in_plist(tmp):
+    concert = Concert(name="Test Gig")
+    s = concert.add_set("Song A")
+    p = s.add_patch("Keys")
+    p.add_channel("Piano V", "Grand Piano")
+    p.add_smart_knob("Attack", channel_slot_index=0, param_index=107, range_low=-1, range_high=85)
+
+    path = write_concert(concert, tmp)
+    data = plistlib.load(open(path / "Concert.patch" / "Song A.patch" / "Keys.patch" / "data.plist", "rb"))
+    pmm = data["patch"]["engineNode"]["parameterMappingMap"]
+    assert "\x01IDENTITY:Smart Knob 1" in pmm["containsDictionary"]
+    # storeDict value is a bytes blob — verify it parses as a valid plist
+    blob = bytes(pmm["storeDict"]["\x01IDENTITY:Smart Knob 1"])
+    decoded = plistlib.loads(blob)
+    assert decoded["$archiver"] == "NSKeyedArchiver"
+
+
+def test_smart_knob_references_correct_instid(tmp):
+    import plistlib as _pl
+    concert = Concert(name="Test Gig")
+    s = concert.add_set("Song A")
+    p = s.add_patch("Keys")
+    p.add_channel("Piano V", "Grand Piano")   # slot 0 → instID 104
+    p.add_channel("Bass", "Bass")             # slot 1 → instID 108
+    p.add_smart_knob("Bass Cutoff", channel_slot_index=1, param_index=35)
+
+    path = write_concert(concert, tmp)
+    data = plistlib.load(open(path / "Concert.patch" / "Song A.patch" / "Keys.patch" / "data.plist", "rb"))
+    pmm = data["patch"]["engineNode"]["parameterMappingMap"]
+    blob = bytes(pmm["storeDict"]["\x01IDENTITY:Smart Knob 1"])
+    raw = _pl.loads(blob)
+    objects = raw["$objects"]
+    mapping = next(o for o in objects if isinstance(o, dict) and "kGInstIDKey" in o)
+    assert mapping["kGInstIDKey"] == 108  # instID for slot 1
+
+
+def test_no_smart_knobs_uses_empty_map(tmp):
+    concert = Concert.from_setlist("Test Gig", ["Song A"])
+    path = write_concert(concert, tmp)
+    data = plistlib.load(open(path / "Concert.patch" / "Song A.patch" / "Main.patch" / "data.plist", "rb"))
+    pmm = data["patch"]["engineNode"]["parameterMappingMap"]
+    assert pmm["storeDict"] == {}
+    assert pmm["containsDictionary"] == {}
