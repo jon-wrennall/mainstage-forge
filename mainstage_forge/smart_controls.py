@@ -23,9 +23,9 @@ import struct
 
 # Deterministic but unique value per knob — used as WsMutableController.value.
 # MainStage requires a non-zero unique int per controller instance.
-def _knob_value(knob_number: int) -> int:
+def _knob_value(knob_number: int, identity_prefix: str = "Smart Knob") -> int:
     import hashlib
-    h = hashlib.md5(f"Smart Knob {knob_number}".encode()).digest()
+    h = hashlib.md5(f"{identity_prefix} {knob_number}".encode()).digest()
     return int.from_bytes(h[:4], "little") & 0x7FFFFFFF or knob_number * 10_000_007
 
 
@@ -35,16 +35,19 @@ def build_parameter_mapping_bplist(
     knob_number: int,
     range_low: int = -1,
     range_high: int = -1,
+    range_is_flipped: bool = False,
+    identity_prefix: str = "Smart Knob",
 ) -> bytes:
     """
     Return the NSKeyedArchiver bplist for one Smart Knob → plugin parameter mapping.
 
     Args:
-        inst_id:     Channel_instID of the target instrument strip (e.g. 104).
-        param_index: 0-based parameter index inside the plugin.
-        knob_number: 1-based Smart Knob number (1–10).
-        range_low:   Lower value clamp (-1 = plugin min).
-        range_high:  Upper value clamp (-1 = plugin max).
+        inst_id:          Channel_instID of the target instrument strip (e.g. 104).
+        param_index:      0-based parameter index inside the plugin.
+        knob_number:      1-based knob number.
+        range_low:        Lower value clamp (-1 = plugin min).
+        range_high:       Upper value clamp (-1 = plugin max).
+        range_is_flipped: True to invert the knob direction.
     """
     nsmutabledict_class = {
         "$classname": "NSMutableDictionary",
@@ -106,7 +109,7 @@ def build_parameter_mapping_bplist(
             "isMIDIPlugIn": False,
             "momentaryType": False,
             "takeVelocity": False,
-            "rangeIsFlipped": False,
+            "rangeIsFlipped": range_is_flipped,
             "kFilterMappingKey": False,
             "kDiscreteStepsKey": False,
             "kDisplayIndexKey": 0,
@@ -129,7 +132,7 @@ def build_parameter_mapping_bplist(
             "channelID": 0,
             "type": 5,       # 5 = Smart Knob (on-screen controller)
             "minValue": 0,
-            "value": _knob_value(knob_number),
+            "value": _knob_value(knob_number, identity_prefix),
             "MIDIPort": U(7),
             "controllerID": -256,  # -256 = no MIDI CC assigned
             "bits": 7,
@@ -188,14 +191,20 @@ def build_parameter_mapping_map(
     for entry in knobs:
         knob_num, inst_id, param_idx, rl, rh = entry[:5]
         prefix = entry[5] if len(entry) > 5 else "Smart Knob"
+        flipped = entry[6] if len(entry) > 6 else False
         key = f"\x01IDENTITY:{prefix} {knob_num}"
-        contains[key] = True
+        # containsDictionary only tracks Smart Knob (hardware panel) entries,
+        # not custom on-screen Knob N controls.
+        if prefix == "Smart Knob":
+            contains[key] = True
         blob = build_parameter_mapping_bplist(
             inst_id=inst_id,
             param_index=param_idx,
             knob_number=knob_num,
             range_low=rl,
             range_high=rh,
+            range_is_flipped=flipped,
+            identity_prefix=prefix,
         )
         store[key] = blob
 
@@ -223,11 +232,18 @@ def build_ui_plugin_data_dict(knobs: list[tuple]) -> dict:
         knob_num, label = entry[:2]
         prefix = entry[2] if len(entry) > 2 else "Smart Knob"
         key = f"\x01IDENTITY:{prefix} {knob_num}"
+        # Knob N controls with no custom label use empty storeDict/containsDictionary
+        if label:
+            store = {"customLabel": label}
+            contains = {"customLabel": True}
+        else:
+            store = {}
+            contains = {}
         result[key] = {
             "identity": key,
-            "storeDict": {"customLabel": label},
+            "storeDict": store,
             "overrideDict": {},
-            "containsDictionary": {"customLabel": True},
+            "containsDictionary": contains,
             "containsBasedOnMappingExistence": {},
         }
     return result
@@ -265,6 +281,28 @@ ES2_PARAMS = {
     "delay":       0,   # baseplate delay send
     "reverb":     29,   # baseplate reverb amount
 }
+
+JUN6V_PARAMS = {
+    # Extracted from Example 80s concert (Square Bells patch — Jun-6 V, instID=392)
+    # Knob 3 → paramIdx 7, Knob 4 → paramIdx 14, Knob 5 → paramIdx 15
+    "param_7":    7,
+    "param_14":  14,
+    "param_15":  15,
+}
+
+# Channel_instID values for known plugin types.
+# instID is assigned by MainStage based on slot index: slots 1-8 get 104,108,112,...
+# A Jun-6 V at an unusually high slot (e.g. slot 73) gets instID 392.
+# For programmatic use, instID is derived from channel position, not plugin identity.
+# These constants are for reference when hard-coding cross-patch knob mappings.
+INST_ID_SLOT1  = 104   # First instrument channel strip
+INST_ID_SLOT2  = 108   # Second
+INST_ID_SLOT3  = 112   # Third
+INST_ID_SLOT4  = 116
+INST_ID_SLOT5  = 120
+INST_ID_SLOT6  = 124
+INST_ID_SLOT7  = 128
+INST_ID_SLOT8  = 132
 
 def patch_cst_key_zone(src: bytes, low_note: int, high_note: int) -> bytes:
     """

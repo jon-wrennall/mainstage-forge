@@ -63,6 +63,9 @@ class SmartKnob:
     ``range_low`` / ``range_high`` clamp the knob range (-1 = plugin's own min/max).
     ``identity_prefix`` is "Smart Knob" for the standard 12-position panel, or "Knob"
     for a custom extra knob added to the screen layout.
+    ``knob_number`` overrides the auto-assigned 1-based number — use this when you need
+    a specific slot (e.g. Knob 3 rather than the next available number).
+    ``range_is_flipped`` inverts the knob direction.
     """
     label: str
     channel_slot_index: int = 0
@@ -70,6 +73,8 @@ class SmartKnob:
     range_low: int = -1
     range_high: int = -1
     identity_prefix: str = "Smart Knob"
+    knob_number: int | None = None   # None = auto-assign from position in list
+    range_is_flipped: bool = False
 
 
 @dataclass
@@ -99,6 +104,8 @@ class Patch:
         range_low: int = -1,
         range_high: int = -1,
         identity_prefix: str = "Smart Knob",
+        knob_number: int | None = None,
+        range_is_flipped: bool = False,
     ) -> SmartKnob:
         """
         Add a Smart Control knob to this patch.
@@ -109,6 +116,9 @@ class Patch:
             param_index:        0-based plugin parameter index (plugin-specific).
             range_low:          Lower clamp (-1 = plugin min).
             range_high:         Upper clamp (-1 = plugin max).
+            identity_prefix:    "Smart Knob" (hardware panel) or "Knob" (on-screen).
+            knob_number:        Override slot number (None = auto from list position).
+            range_is_flipped:   True to invert the knob direction.
         """
         knob = SmartKnob(
             label=label,
@@ -117,6 +127,8 @@ class Patch:
             range_low=range_low,
             range_high=range_high,
             identity_prefix=identity_prefix,
+            knob_number=knob_number,
+            range_is_flipped=range_is_flipped,
         )
         self.smart_knobs.append(knob)
         return knob

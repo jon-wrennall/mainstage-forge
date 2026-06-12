@@ -249,7 +249,7 @@ def test_no_smart_knobs_uses_empty_map(tmp):
 
 
 def test_knob_identity_prefix(tmp):
-    """Custom 'Knob N' identity prefix is stored correctly (vs default 'Smart Knob N')."""
+    """Custom 'Knob N' identity prefix is in storeDict but NOT containsDictionary."""
     concert = Concert(name="Test Gig")
     s = concert.add_set("Song A")
     p = s.add_patch("Keys")
@@ -259,8 +259,10 @@ def test_knob_identity_prefix(tmp):
     path = write_concert(concert, tmp)
     data = plistlib.load(open(path / "Concert.patch" / "Song A.patch" / "Keys.patch" / "data.plist", "rb"))
     pmm = data["patch"]["engineNode"]["parameterMappingMap"]
-    assert "\x01IDENTITY:Knob 1" in pmm["containsDictionary"]
-    assert "\x01IDENTITY:Smart Knob 1" not in pmm["containsDictionary"]
+    # Knob N mappings appear in storeDict but NOT containsDictionary (Smart Knob only)
+    assert "\x01IDENTITY:Knob 1" in pmm["storeDict"]
+    assert "\x01IDENTITY:Knob 1" not in pmm["containsDictionary"]
+    assert "\x01IDENTITY:Smart Knob 1" not in pmm["storeDict"]
 
 
 def test_key_zone_patch_applied_to_cst(tmp):

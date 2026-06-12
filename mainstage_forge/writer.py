@@ -133,13 +133,14 @@ def write_concert(concert: Concert, output_dir: str | Path, overwrite: bool = Fa
             smart_knob_specs = None
             if p.smart_knobs:
                 smart_knob_specs = []
-                for knob_num, knob in enumerate(p.smart_knobs, start=1):
+                for auto_num, knob in enumerate(p.smart_knobs, start=1):
+                    knob_num = knob.knob_number if knob.knob_number is not None else auto_num
                     slot = knob.channel_slot_index
                     inst_id = slot_inst_ids[slot] if slot < len(slot_inst_ids) else _INST_IDS[0]
                     smart_knob_specs.append((
                         knob_num, inst_id, knob.param_index,
                         knob.range_low, knob.range_high, knob.label,
-                        knob.identity_prefix,
+                        knob.identity_prefix, knob.range_is_flipped,
                     ))
 
             _write_plist(
