@@ -2,9 +2,7 @@
 
 Generate Apple MainStage `.concert` packages programmatically — from a setlist, a script, or an LLM via MCP.
 
-There is no public API for MainStage. This library reverse-engineers the `.concert` package format (a plist-based directory tree) and the `.cst` channel-strip binary format to create fully loadable concerts — with pre-loaded Arturia (and other AU) instruments — without touching the GUI.
-
-Concerts can be generated with named instrument channels already assigned to each patch. A bundled template library covers common Arturia V-Collection plugins (OP-Xa V, Piano V3, Jun-6 V, DX7 V, Jup-8 V4) and Logic built-ins. Any `.cst` file saved by MainStage — with a specific preset dialled in — can be passed directly instead of a template.
+There is no public API for MainStage. This library reverse-engineers the `.concert` package format (a plist-based directory tree) and the `.cst` channel-strip binary format to create fully loadable concerts — with pre-loaded Arturia (and other AU) instruments, Smart Control mappings, key zone splits, and FX chains — without touching the GUI.
 
 ## What it creates
 
@@ -22,7 +20,7 @@ My Gig.concert/
         ├── data.plist       ← set-level node
         └── Keys.patch/
             ├── data.plist   ← patch with engineNode + channel entries
-            ├── Piano V.cst  ← copied from template library
+            ├── Piano V.cst  ← copied/patched from template library
             └── D50 Pad.cst
 ```
 
@@ -39,23 +37,60 @@ My Gig.concert/
 - **Third-party AU plugins load correctly** — the `.cst` binary format has been reverse-engineered. Each channel strip embeds the AU component description (`manufacturer + type + subtype`) so MainStage loads the correct plugin (not just a name label).
 - A **template library** of bundled `.cst` files ships with the package. Use a template name as `cst_source` and the library handles the rest:
 
-| Template name | Plugin | AU code |
-|---------------|--------|---------|
-| `OP-Xa V` | Arturia OP-Xa V | `OBXa Artu` |
-| `Piano V3` | Arturia Piano V3 | `Pia3 Artu` |
-| `Jun-6 V` | Arturia Jun-6 V | `Jun1 Artu` |
-| `DX7 V` | Arturia DX7 V | `Dx71 Artu` |
-| `Jup-8 V4` | Arturia Jup-8 V4 | `JUP4 Artu` |
-| `D50 Pad` | Logic Alchemy (D50 preset) | — |
-| `Grand Piano` | Logic Piano | — |
-| `Classic Electric Piano` | Logic E-Piano | — |
-| `Bass` | Logic Bass | — |
-| `Bebop Organ` / `Oakland Organ` | Logic B-3 | — |
-| `Analog Spheres` | Logic ES2 | — |
-| `80s Sync Lead` / `80s FM Bass Attack` | Logic Alchemy | — |
+| Template name | Plugin |
+|---------------|--------|
+| `OP-Xa V` | Arturia OP-Xa V |
+| `OB-Xa V` | Arturia OB-Xa V |
+| `Piano V3` | Arturia Piano V3 |
+| `Jun-6 V` | Arturia Jun-6 V |
+| `DX7 V` | Arturia DX7 V |
+| `Jup-8 V4` | Arturia Jup-8 V4 |
+| `Stage-73 V2` | Arturia Stage-73 V2 |
+| `Alone` | Arturia (atmospheric preset) |
+| `Grand Piano` | Logic Piano |
+| `Classic Electric Piano` | Logic E-Piano |
+| `Bass` | Logic Bass |
+| `Bebop Organ` / `Oakland Organ` / `B-3 V2` | Logic B-3 |
+| `Analog Spheres` | Logic ES2 |
+| `D50 Pad` / `80s Sync Lead` / `80s FM Bass Attack` | Logic Alchemy |
 
-- Any `.cst` file from an existing concert can be passed as an absolute path instead of a template name — this lets you reuse presets with specific patch state (saved Arturia preset, knob positions, etc.)
+- Any `.cst` file from an existing concert can be passed as an absolute path instead of a template name — lets you reuse presets with specific patch state (saved Arturia preset, knob positions, etc.)
 - Multiple channels per patch with independent volume, pan, mute, and colour-index
+
+### Key zone splits
+Per-channel MIDI note range — `low_note` and `high_note` are patched directly into the `WsKeyboardLayer` bplist inside the `.cst` binary at build time:
+
+```python
+ch = p.add_channel("OB-Xa", "OB-Xa V")
+ch.low_note = 48   # C3 and above only
+ch.high_note = 127
+```
+
+### Smart Controls
+Full Smart Control parameter mapping — knobs on the hardware Smart Controls panel (`Smart Knob N`) and custom on-screen controls (`Knob N`). Reverse-engineered from the `MAPlugInParameterMapping` NSKeyedArchiver format.
+
+```python
+# Standard Smart Knob (hardware panel knob 1–12)
+p.add_smart_knob("Cutoff",    param_index=35, range_high=305)
+p.add_smart_knob("Resonance", param_index=36, range_high=65)
+p.add_smart_knob("Osc Mix",   param_index=26, range_is_flipped=True)
+
+# On-screen Knob N — specify knob_number to target a specific slot
+p.add_smart_knob("",  param_index=7,  identity_prefix="Knob", knob_number=3)
+p.add_smart_knob("",  param_index=14, identity_prefix="Knob", knob_number=4)
+```
+
+Each knob maps to a channel by `channel_slot_index` (0 = first channel in the patch). Known parameter index tables for ES2 and Prophet-5 are in `smart_controls.py`.
+
+### FX chain grafting
+FX insert chains can be copied from a reference `.cst` file (saved from MainStage with the desired chain configured) and grafted into a template at build time:
+
+```python
+ch = p.add_channel("Lead", "80s Sync Lead")
+ch.fx_source = "/path/to/reference/with-fx.cst"
+```
+
+`graft_fx_chain` identifies FX blocks by finding GAME block pairs present in the source but absent in the instrument template — making it robust to different instrument slot IDs.
 
 ### MCP tools
 All tools are available to any MCP-compatible LLM client (Claude Desktop, etc.):
@@ -90,20 +125,31 @@ concert = Concert.from_setlist(
 )
 write_concert(concert, "~/Music/MainStage")
 
-# With instruments — using bundled templates
+# With instruments, key zones, Smart Controls, and FX
 concert = Concert(name="Covers Night")
+
 s = concert.add_set("Jump", tempo=138.0)
 p = s.add_patch("OB-Xa Brass", has_tempo=True)
-p.add_channel("OB-Xa", "OP-Xa V")          # loads Arturia OP-Xa V
+ch = p.add_channel("OB-Xa", "OB-Xa V")
+ch.low_note = 48    # C3 and above
 
 s2 = concert.add_set("Here I Go Again", tempo=116.0)
 p2 = s2.add_patch("Rock Piano + Pad", has_program_change=True, program_change_num=11)
-p2.add_channel("Piano V", "Piano V3")       # loads Arturia Piano V3
-p2.add_channel("D50 Pad", "D50 Pad")       # loads Logic Alchemy D50
+p2.add_channel("Piano V", "Piano V3")
+p2.add_channel("D50 Pad", "D50 Pad")
 
-# Using an absolute path to a .cst with saved preset state
-p3 = s2.add_patch("Solo Piano")
-p3.add_channel("Piano V", "/path/to/existing/Piano V.cst")
+# Smart Controls on the second patch
+p2.add_smart_knob("Cutoff",    channel_slot_index=0, param_index=35, range_high=305)
+p2.add_smart_knob("Resonance", channel_slot_index=0, param_index=36, range_high=65)
+p2.add_smart_knob("Osc Mix",   channel_slot_index=0, param_index=26, range_is_flipped=True)
+
+# On-screen Knob N controls with explicit slot numbers
+p2.add_smart_knob("", channel_slot_index=0, param_index=7,  identity_prefix="Knob", knob_number=3)
+p2.add_smart_knob("", channel_slot_index=0, param_index=14, identity_prefix="Knob", knob_number=4)
+
+# FX chain from a reference .cst
+ch3 = p2.add_channel("Lead", "80s Sync Lead")
+ch3.fx_source = "/path/to/reference-with-chorus.cst"
 
 write_concert(concert, "~/Music/MainStage", overwrite=True)
 ```
@@ -128,7 +174,7 @@ Add to your `claude_desktop_config.json`:
 
 ### Example prompt
 
-> Create a MainStage concert called "Covers Night" with three songs. Jump at 138 BPM with an OB-Xa Brass patch using OP-Xa V. Here I Go Again at 116 BPM with a Rock Piano patch on Piano V3 (PC:11). Don't You at 118 BPM with a Juno Arp patch on Jun-6 V (PC:1). Save to ~/Music/MainStage.
+> Create a MainStage concert called "Covers Night" with three songs. Jump at 138 BPM with an OB-Xa Brass patch using OB-Xa V, split above C3. Here I Go Again at 116 BPM with a Rock Piano patch on Piano V3 (PC:11) with Cutoff and Resonance Smart Controls. Don't You at 118 BPM with a Juno Arp patch on Jun-6 V (PC:1). Save to ~/Music/MainStage.
 
 ## Adding instruments to the template library
 
@@ -139,40 +185,70 @@ Templates are `.cst` files in `mainstage_forge/templates/`. To add a new plugin:
 3. Copy the `.cst` to `mainstage_forge/templates/<Plugin Name>.cst`
 4. The template name is the file stem — use it as `cst_source` in `add_channel()`
 
-> **Important:** `.cst` files generated by older versions of this library (before the binary format was reverse-engineered) will load E-Piano instead of the intended plugin. Replace any such stubs with files generated by MainStage itself.
+## Inspecting .cst files
+
+`cst_tools.inspect_cst()` decodes the structure of any `.cst` file:
+
+```python
+from mainstage_forge.cst_tools import inspect_cst
+
+info = inspect_cst("path/to/file.cst")
+# info["game_pairs"]      — list of GAME block slot IDs and sizes
+# info["fx_slot_count"]   — number of FX insert slots
+# info["key_zone"]        — {'lowNote': 0, 'highNote': 127, ...}
+# info["layout_name"]     — Smart Controls layout name
+# info["smart_knob_labels"] — decoded custom knob labels
+```
+
+## Finding parameter indices
+
+To find the `param_index` for any plugin parameter:
+
+1. In MainStage, assign a Smart Knob to the parameter you want
+2. Save the concert
+3. Run:
+```python
+import plistlib
+d = plistlib.load(open("path/to/patch/data.plist", "rb"))
+pmm = d["patch"]["engineNode"]["parameterMappingMap"]["storeDict"]
+raw = plistlib.loads(bytes(pmm["\x01IDENTITY:Smart Knob 1"]))
+objs = raw["$objects"]
+m = next(o for o in objs if isinstance(o, dict) and "parameterIndex_1" in o)
+print("param_index:", objs[m["parameterIndex_1"].data])
+```
+
+Known tables in `smart_controls.py`: `ES2_PARAMS`, `JUN6V_PARAMS`, `PROPHET5_PARAMS`.
 
 ## Format notes
 
 - `.concert` is a **directory package** — macOS shows it as a single file, it's a directory on disk
 - `data.plist` files are Apple binary plists (inspect with `plutil -p`)
-- `.cst` channel-strip presets are **proprietary binary** with an OCuA header, GAME chunks, NSKeyedArchiver bplists, and embedded XML plugin state
-- The AU component description (`manufacturer/type/subtype`) is stored as 12 bytes (little-endian OSType codes) immediately following the 12-byte plugin name field in the binary header
+- `.cst` channel-strip presets are **proprietary binary**: OCuA header + GAME block pairs + NSKeyedArchiver bplists. Not a plist file — `plutil` cannot parse them.
+- GAME block pairs encode plugin parameter arrays as raw IEEE 754 floats; the slot ID at byte offset 8 identifies the block type
 - Tested against MainStage 3.6+ (VersionPatches 40014, OCuA format version 0x07)
 
 ## Tests
 
 ```bash
-pytest
-# or
 uv run pytest tests/ -v
 ```
 
-19 tests covering concert structure, plist correctness, template resolution, channel strip writing, and channel entries in generated plists.
+33 tests across 4 files covering concert structure, plist correctness, template resolution, channel strip writing, Smart Controls, key zone patching, and FX chain grafting.
 
 ## Limitations
 
 - **Preset state**: bundled templates load plugins at their default/init state. To load a specific saved preset, pass an absolute path to a `.cst` captured from MainStage after selecting that preset.
-- **No key-zone splits**: key range and velocity layers are not yet configurable — every channel responds to the full MIDI range.
+- **FX chain format**: FX plugin state is opaque binary. The graft approach copies FX blocks verbatim from a reference `.cst` — there is no way to configure individual FX parameters programmatically. Arturia and Logic GAMEMELC-format instruments are not compatible with GAME-block grafting.
 - **No MIDI routing per channel**: channel MIDI input filtering (channel filter, transpose per strip) is not exposed.
-- **No smart controls or screen controls**: Smart Control knob mappings and screen control layouts are not generated.
-- **No audio effects chains**: FX plugins on a channel strip are not yet supported — only the instrument slot.
+- **No velocity layers**: `lowVelocity`/`highVelocity` in the key zone are preserved from the template but not yet configurable via the API.
 - **MainStage must be closed** before loading a generated or modified concert (it does not hot-reload).
 - **macOS only**: `.concert` packages are a macOS/MainStage format.
 
 ## Roadmap
 
-- [ ] Key-zone splits (high/low note, velocity range) per channel
+- [x] Key-zone splits (high/low note) per channel
+- [x] Smart Control knob mappings (Smart Knob N and Knob N)
+- [x] FX chain grafting from reference `.cst`
+- [ ] Velocity layer range per channel
 - [ ] Per-channel MIDI transpose and channel filter
-- [ ] Smart control knob layouts
-- [ ] Audio effects chain on channel strips
 - [ ] Preset injection — patch specific Arturia/other preset state into a `.cst` without opening MainStage
