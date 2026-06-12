@@ -246,3 +246,52 @@ def test_no_smart_knobs_uses_empty_map(tmp):
     pmm = data["patch"]["engineNode"]["parameterMappingMap"]
     assert pmm["storeDict"] == {}
     assert pmm["containsDictionary"] == {}
+
+
+def test_knob_identity_prefix(tmp):
+    """Custom 'Knob N' identity prefix is stored correctly (vs default 'Smart Knob N')."""
+    concert = Concert(name="Test Gig")
+    s = concert.add_set("Song A")
+    p = s.add_patch("Keys")
+    p.add_channel("Piano V", "Grand Piano")
+    p.add_smart_knob("Filter Freq", channel_slot_index=0, param_index=20, identity_prefix="Knob")
+
+    path = write_concert(concert, tmp)
+    data = plistlib.load(open(path / "Concert.patch" / "Song A.patch" / "Keys.patch" / "data.plist", "rb"))
+    pmm = data["patch"]["engineNode"]["parameterMappingMap"]
+    assert "\x01IDENTITY:Knob 1" in pmm["containsDictionary"]
+    assert "\x01IDENTITY:Smart Knob 1" not in pmm["containsDictionary"]
+
+
+def test_key_zone_patch_applied_to_cst(tmp):
+    """lowNote/highNote are patched into the .cst WsKeyboardLayer bplist."""
+    import re
+    template = list(TEMPLATES.values())[0]
+
+    concert = Concert(name="Test Gig")
+    s = concert.add_set("Song A")
+    p = s.add_patch("Keys")
+    ch = p.add_channel("Piano V", str(template))
+    ch.low_note = 60
+    ch.high_note = 127
+
+    path = write_concert(concert, tmp)
+    cst_path = path / "Concert.patch" / "Song A.patch" / "Keys.patch" / "Piano V.cst"
+    assert cst_path.exists()
+    raw = cst_path.read_bytes()
+
+    # Find WsKeyboardLayer bplist and verify patched values
+    for m in re.finditer(b'bplist00', raw):
+        off = m.start()
+        for end in range(200, min(len(raw) - off + 1, 4000)):
+            try:
+                p2 = plistlib.loads(raw[off:off+end])
+                objs = p2.get('$objects', [])
+                for o in objs:
+                    if isinstance(o, dict) and 'highNote' in o:
+                        assert o['lowNote'] == 60
+                        assert o['highNote'] == 127
+                        return
+            except Exception:
+                continue
+    pytest.fail("WsKeyboardLayer bplist not found in patched .cst")

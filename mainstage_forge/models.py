@@ -29,6 +29,8 @@ class ChannelStrip:
     muted: bool = False
     color_index: int = 33      # Channel_seqColorIndex palette entry
     uuid: str = field(default_factory=_uuid)
+    low_note: int = 0          # MIDI note 0–127 (0 = no lower limit)
+    high_note: int = 127       # MIDI note 0–127 (127 = no upper limit)
 
     def resolve_cst(self) -> Path:
         """Return the absolute path to the .cst file."""
@@ -55,12 +57,15 @@ class SmartKnob:
     patch's ``channels`` list (0 = first instrument strip).
     ``param_index`` is the 0-based parameter index within that plugin — plugin-specific.
     ``range_low`` / ``range_high`` clamp the knob range (-1 = plugin's own min/max).
+    ``identity_prefix`` is "Smart Knob" for the standard 12-position panel, or "Knob"
+    for a custom extra knob added to the screen layout.
     """
     label: str
     channel_slot_index: int = 0
     param_index: int = 0
     range_low: int = -1
     range_high: int = -1
+    identity_prefix: str = "Smart Knob"
 
 
 @dataclass
@@ -89,6 +94,7 @@ class Patch:
         param_index: int = 0,
         range_low: int = -1,
         range_high: int = -1,
+        identity_prefix: str = "Smart Knob",
     ) -> SmartKnob:
         """
         Add a Smart Control knob to this patch.
@@ -106,6 +112,7 @@ class Patch:
             param_index=param_index,
             range_low=range_low,
             range_high=range_high,
+            identity_prefix=identity_prefix,
         )
         self.smart_knobs.append(knob)
         return knob

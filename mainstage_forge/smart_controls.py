@@ -17,6 +17,8 @@ Labels are stored in:
 
 from __future__ import annotations
 import plistlib
+import re
+import struct
 
 
 # Deterministic but unique value per knob — used as WsMutableController.value.
@@ -168,21 +170,25 @@ def build_parameter_mapping_bplist(
 
 
 def build_parameter_mapping_map(
-    knobs: list[tuple[int, int, int, int, int]],
+    knobs: list[tuple],
 ) -> dict:
     """
     Build the full parameterMappingMap dict for a patch's engineNode.
 
     Args:
         knobs: list of (knob_number, inst_id, param_index, range_low, range_high)
+               or (knob_number, inst_id, param_index, range_low, range_high, identity_prefix)
+               where identity_prefix is "Smart Knob" (default) or "Knob".
 
     Returns:
         Dict ready to insert as engineNode['parameterMappingMap'].
     """
     contains: dict = {}
     store: dict = {}
-    for knob_num, inst_id, param_idx, rl, rh in knobs:
-        key = f"\x01IDENTITY:Smart Knob {knob_num}"
+    for entry in knobs:
+        knob_num, inst_id, param_idx, rl, rh = entry[:5]
+        prefix = entry[5] if len(entry) > 5 else "Smart Knob"
+        key = f"\x01IDENTITY:{prefix} {knob_num}"
         contains[key] = True
         blob = build_parameter_mapping_bplist(
             inst_id=inst_id,
@@ -200,19 +206,23 @@ def build_parameter_mapping_map(
     }
 
 
-def build_ui_plugin_data_dict(knobs: list[tuple[int, str]]) -> dict:
+def build_ui_plugin_data_dict(knobs: list[tuple]) -> dict:
     """
     Build the uiPluginDataDict entries for Smart Knob labels.
 
     Args:
         knobs: list of (knob_number, label_string)
+               or (knob_number, label_string, identity_prefix)
+               where identity_prefix is "Smart Knob" (default) or "Knob".
 
     Returns:
         Dict to merge into engineNode['uiPluginDataDict'].
     """
     result: dict = {}
-    for knob_num, label in knobs:
-        key = f"\x01IDENTITY:Smart Knob {knob_num}"
+    for entry in knobs:
+        knob_num, label = entry[:2]
+        prefix = entry[2] if len(entry) > 2 else "Smart Knob"
+        key = f"\x01IDENTITY:{prefix} {knob_num}"
         result[key] = {
             "identity": key,
             "storeDict": {"customLabel": label},
@@ -254,4 +264,59 @@ ES2_PARAMS = {
     "release":   112,
     "delay":       0,   # baseplate delay send
     "reverb":     29,   # baseplate reverb amount
+}
+
+def patch_cst_key_zone(src: bytes, low_note: int, high_note: int) -> bytes:
+    """
+    Return a copy of a .cst binary with the WsKeyboardLayer lowNote/highNote replaced.
+
+    The key zone is stored in the last NSKeyedArchiver bplist inside the .cst file.
+    Only modifies lowNote and highNote; all other fields (velocity range, transpose,
+    color, etc.) are preserved from the original.
+
+    Raises ValueError if no WsKeyboardLayer bplist is found in the file.
+    """
+    # Find the bplist that contains WsKeyboardLayer
+    bplist_offset = None
+    bplist_len = None
+    for m in re.finditer(b'bplist00', src):
+        off = m.start()
+        blob = src[off:]
+        for end in range(200, min(len(blob) + 1, 4000)):
+            try:
+                p = plistlib.loads(blob[:end])
+                objs = p.get('$objects', [])
+                has_layer = any(
+                    isinstance(o, dict) and o.get('$classname') == 'WsKeyboardLayer'
+                    for o in objs
+                )
+                if has_layer:
+                    bplist_offset = off
+                    bplist_len = end
+                    break
+            except Exception:
+                continue
+        if bplist_offset is not None:
+            break
+
+    if bplist_offset is None:
+        raise ValueError("No WsKeyboardLayer bplist found in .cst file")
+
+    # Parse and update
+    blob = src[bplist_offset : bplist_offset + bplist_len]
+    p = plistlib.loads(blob)
+    objs = p['$objects']
+    for i, o in enumerate(objs):
+        if isinstance(o, dict) and 'highNote' in o:
+            objs[i] = dict(o, lowNote=low_note, highNote=high_note)
+            break
+
+    new_blob = plistlib.dumps(p, fmt=plistlib.FMT_BINARY)
+    return src[:bplist_offset] + new_blob + src[bplist_offset + bplist_len:]
+
+
+PROPHET5_PARAMS = {
+    # Extracted from Example 80s concert (Eighties Poly Synth patch, instID=388)
+    "filter_frequency": 20,
+    "filter_resonance": 21,
 }

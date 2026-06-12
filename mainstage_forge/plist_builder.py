@@ -275,8 +275,8 @@ def patch_plist(
 
     if smart_knob_specs:
         from .smart_controls import build_parameter_mapping_map, build_ui_plugin_data_dict
-        knob_tuples = [(n, iid, pi, rl, rh) for n, iid, pi, rl, rh, _ in smart_knob_specs]
-        label_tuples = [(n, lbl) for n, _, _, _, _, lbl in smart_knob_specs]
+        knob_tuples = [(n, iid, pi, rl, rh, pfx) for n, iid, pi, rl, rh, _, pfx in smart_knob_specs]
+        label_tuples = [(n, lbl, pfx) for n, _, _, _, _, lbl, pfx in smart_knob_specs]
         overrides["parameterMappingMap"] = build_parameter_mapping_map(knob_tuples)
         overrides["uiPluginDataDict"] = build_ui_plugin_data_dict(label_tuples)
         overrides["smartControlsTabIndex"] = 0

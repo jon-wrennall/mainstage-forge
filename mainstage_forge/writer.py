@@ -93,7 +93,13 @@ def write_concert(concert: Concert, output_dir: str | Path, overwrite: bool = Fa
             for idx, ch in enumerate(p.channels):
                 cst_src = ch.resolve_cst()
                 cst_filename = ch.name + ".cst"
-                shutil.copy2(cst_src, patch_dir / cst_filename)
+                cst_dest = patch_dir / cst_filename
+                if ch.low_note != 0 or ch.high_note != 127:
+                    from .smart_controls import patch_cst_key_zone
+                    patched = patch_cst_key_zone(cst_src.read_bytes(), ch.low_note, ch.high_note)
+                    cst_dest.write_bytes(patched)
+                else:
+                    shutil.copy2(cst_src, cst_dest)
                 entry = instrument_channel_entry(
                     name=ch.name,
                     filename=cst_filename,
@@ -107,7 +113,7 @@ def write_concert(concert: Concert, output_dir: str | Path, overwrite: bool = Fa
                 channel_entries.append(entry)
                 slot_inst_ids.append(entry["Channel_instID"])
 
-            # Build smart knob specs: (knob_num, inst_id, param_index, rl, rh, label)
+            # Build smart knob specs: (knob_num, inst_id, param_index, rl, rh, label, prefix)
             smart_knob_specs = None
             if p.smart_knobs:
                 smart_knob_specs = []
@@ -117,6 +123,7 @@ def write_concert(concert: Concert, output_dir: str | Path, overwrite: bool = Fa
                     smart_knob_specs.append((
                         knob_num, inst_id, knob.param_index,
                         knob.range_low, knob.range_high, knob.label,
+                        knob.identity_prefix,
                     ))
 
             _write_plist(
