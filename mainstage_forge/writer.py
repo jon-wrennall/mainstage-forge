@@ -94,10 +94,26 @@ def write_concert(concert: Concert, output_dir: str | Path, overwrite: bool = Fa
                 cst_src = ch.resolve_cst()
                 cst_filename = ch.name + ".cst"
                 cst_dest = patch_dir / cst_filename
+                modified = False
+                cst_bytes = cst_src.read_bytes()
+
+                # Graft FX chain from fx_source if provided
+                if ch.fx_source:
+                    from .cst_tools import graft_fx_chain
+                    fx_path = Path(ch.fx_source)
+                    if not fx_path.exists():
+                        raise FileNotFoundError(f"fx_source not found: {ch.fx_source!r}")
+                    cst_bytes = graft_fx_chain(cst_bytes, fx_path.read_bytes())
+                    modified = True
+
+                # Patch key zone if non-default
                 if ch.low_note != 0 or ch.high_note != 127:
                     from .smart_controls import patch_cst_key_zone
-                    patched = patch_cst_key_zone(cst_src.read_bytes(), ch.low_note, ch.high_note)
-                    cst_dest.write_bytes(patched)
+                    cst_bytes = patch_cst_key_zone(cst_bytes, ch.low_note, ch.high_note)
+                    modified = True
+
+                if modified:
+                    cst_dest.write_bytes(cst_bytes)
                 else:
                     shutil.copy2(cst_src, cst_dest)
                 entry = instrument_channel_entry(

@@ -31,6 +31,10 @@ class ChannelStrip:
     uuid: str = field(default_factory=_uuid)
     low_note: int = 0          # MIDI note 0–127 (0 = no lower limit)
     high_note: int = 127       # MIDI note 0–127 (127 = no upper limit)
+    # Path to a .cst saved from MainStage that has the desired FX insert chain
+    # configured.  The FX GAME blocks are grafted from this file into the
+    # instrument .cst produced from cst_source.  None = no insert FX.
+    fx_source: str | None = None
 
     def resolve_cst(self) -> Path:
         """Return the absolute path to the .cst file."""
