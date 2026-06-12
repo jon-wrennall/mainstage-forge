@@ -116,40 +116,46 @@ pip install -e ".[dev]"
 from mainstage_forge.models import Concert
 from mainstage_forge.writer import write_concert
 
-# Simple setlist — empty patches
+# Simple setlist — one empty patch per song
 concert = Concert.from_setlist(
-    "Edinburgh 2025-06-14",
-    ["Intro", "Song 1", "Song 2", "Encore"],
+    "My Gig",
+    ["Song 1", "Song 2", "Song 3"],
     patch_name="Main",
     tempo=120.0,
 )
 write_concert(concert, "~/Music/MainStage")
 
 # With instruments, key zones, Smart Controls, and FX
-concert = Concert(name="Covers Night")
+concert = Concert(name="My Gig")
 
-s = concert.add_set("Jump", tempo=138.0)
-p = s.add_patch("OB-Xa Brass", has_tempo=True)
-ch = p.add_channel("OB-Xa", "OB-Xa V")
-ch.low_note = 48    # C3 and above
+s = concert.add_set("Song 1", tempo=120.0)
+p = s.add_patch("Synth Lead", has_tempo=True)
 
-s2 = concert.add_set("Here I Go Again", tempo=116.0)
-p2 = s2.add_patch("Rock Piano + Pad", has_program_change=True, program_change_num=11)
-p2.add_channel("Piano V", "Piano V3")
-p2.add_channel("D50 Pad", "D50 Pad")
+# Channel strip from a bundled template
+ch = p.add_channel("Lead Synth", "Jun-6 V", volume=0.9)
+ch.low_note = 60    # C4 and above (right-hand split)
 
-# Smart Controls on the second patch
-p2.add_smart_knob("Cutoff",    channel_slot_index=0, param_index=35, range_high=305)
-p2.add_smart_knob("Resonance", channel_slot_index=0, param_index=36, range_high=65)
-p2.add_smart_knob("Osc Mix",   channel_slot_index=0, param_index=26, range_is_flipped=True)
+# Second channel covering the bass range
+ch2 = p.add_channel("Bass", "Bass")
+ch2.high_note = 59  # below C4
+
+# Smart Controls — standard hardware panel knobs
+p.add_smart_knob("Cutoff",    channel_slot_index=0, param_index=35, range_high=305)
+p.add_smart_knob("Resonance", channel_slot_index=0, param_index=36, range_high=65)
+p.add_smart_knob("Osc Mix",   channel_slot_index=0, param_index=26, range_is_flipped=True)
 
 # On-screen Knob N controls with explicit slot numbers
-p2.add_smart_knob("", channel_slot_index=0, param_index=7,  identity_prefix="Knob", knob_number=3)
-p2.add_smart_knob("", channel_slot_index=0, param_index=14, identity_prefix="Knob", knob_number=4)
+p.add_smart_knob("", channel_slot_index=0, param_index=7,  identity_prefix="Knob", knob_number=3)
+p.add_smart_knob("", channel_slot_index=0, param_index=14, identity_prefix="Knob", knob_number=4)
 
-# FX chain from a reference .cst
-ch3 = p2.add_channel("Lead", "80s Sync Lead")
-ch3.fx_source = "/path/to/reference-with-chorus.cst"
+s2 = concert.add_set("Song 2", tempo=130.0)
+p2 = s2.add_patch("Keys + Pad", has_program_change=True, program_change_num=4)
+p2.add_channel("Keys", "Piano V3")
+p2.add_channel("Pad",  "Analog Spheres", volume=0.7)
+
+# FX chain grafted from a reference .cst saved by MainStage
+ch3 = p2.add_channel("FX Lead", "80s Sync Lead")
+ch3.fx_source = "/path/to/reference-with-fx.cst"
 
 write_concert(concert, "~/Music/MainStage", overwrite=True)
 ```
@@ -174,7 +180,7 @@ Add to your `claude_desktop_config.json`:
 
 ### Example prompt
 
-> Create a MainStage concert called "Covers Night" with three songs. Jump at 138 BPM with an OB-Xa Brass patch using OB-Xa V, split above C3. Here I Go Again at 116 BPM with a Rock Piano patch on Piano V3 (PC:11) with Cutoff and Resonance Smart Controls. Don't You at 118 BPM with a Juno Arp patch on Jun-6 V (PC:1). Save to ~/Music/MainStage.
+> Create a MainStage concert called "My Gig" with three songs at 120, 130, and 110 BPM. Song 1: a lead patch with Jun-6 V split above C4 and Cutoff/Resonance Smart Controls. Song 2: a layered patch with Piano V3 and Analog Spheres (PC:4). Song 3: a bass patch with Bass channel only. Save to ~/Music/MainStage.
 
 ## Adding instruments to the template library
 
